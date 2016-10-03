@@ -1,0 +1,34 @@
+{
+  "name": "squigg/ideal-postcodes-laravel",
+  "description": "Laravel package for using the Ideal Postcodes API at https://ideal-postcodes.co.uk/",
+  "keywords": [
+    "laravel",
+    "address",
+    "postcodes",
+    "search",
+    "ideal-postcodes"
+  ],
+  "homepage": "https://github.com/squigg/ideal-postcodes-laravel",
+  "require": {
+    "guzzlehttp/guzzle": "^6.2",
+    "illuminate/support": "^5.3"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^5.5",
+    "orchestra/testbench": "~3.3",
+    "mockery/mockery": "0.9.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "Squigg\\IdealPostcodes\\": "src/"
+    }
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Squigg",
+      "email": "github@squigg.co.uk"
+    }
+  ],
+  "minimum-stability": "stable"
+}
