@@ -24,7 +24,7 @@ class IdealPostcodesServiceProvider extends ServiceProvider
     public function register()
     {
         // Merge the congfiguration options
-        $this->mergeConfigFrom(__DIR__.'/config/ideal-postcodes.php', 'ideal-postcodes');
+        $this->mergeConfigFrom(__DIR__.'/../config/ideal-postcodes.php', 'ideal-postcodes');
 
         // Bind the client into the IOC
         $this->app->bind(
@@ -57,7 +57,7 @@ class IdealPostcodesServiceProvider extends ServiceProvider
         );
 
         // Add an alias so that using the full classname as a dependency will grab this version
-        $this->app->alias(IdealPostcodes::class,'ideal-postcodes');
+        $this->app->alias('ideal-postcodes',IdealPostcodes::class);
 
     }
 

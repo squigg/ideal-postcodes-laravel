@@ -2,6 +2,7 @@
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\ClientException;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Squigg\IdealPostcodes\Exceptions\IdealPostcodesException;
 
@@ -28,7 +29,7 @@ class IdealPostcodes
 
     /**
      * An array of fields to include in the output (defaults to empty = all)
-     * @var mixed
+     * @var array
      */
     protected $fields = [];
 
@@ -52,21 +53,39 @@ class IdealPostcodes
 
     /**
      * The message returned from the Ideal Postcodes API
-     * @var
+     * @var string
      */
     protected $message;
 
     /**
      * Full response data from the API
-     * @var
+     * @var array
      */
     protected $responseData;
 
     /**
      * The current limit for API responses
-     * @var
+     * @var int
      */
     protected $limit;
+
+    /**
+     * The API key
+     * @var string
+     */
+    protected $apiKey;
+
+    /**
+     * Copy of the configuration entries
+     * @var string
+     */
+    protected $config;
+
+    /**
+     * Limit for the next request only
+     * @var int
+     */
+    protected $nextLimit;
 
     /**
      * Initialise a new instance of the class
@@ -76,11 +95,80 @@ class IdealPostcodes
     function __construct(Client $client, $config)
     {
         $this->client = $client;
+        $this->config = $config;
 
         $this->collection = array_get($config, 'collection', false);
         $this->model = array_get($config, 'model', null);
         $this->fields = array_get($config, 'fields', []);
         $this->limit = array_get($config, 'limit', 50);
+        $this->apiKey = array_get($config, 'api_key', 50);
+    }
+
+    /**
+     * Get an array of addresses by Postcode
+     * @param $postcode
+     * @return array|Collection
+     */
+    public function getByPostcode($postcode)
+    {
+
+        $postcode = $this->preparePostcode($postcode);
+        $postcode = $this->encode($postcode);
+        $url = "postcodes/$postcode";
+
+        return $this->getAddressesByRequest([$this, 'formatPostcodeResponse'], $url);
+    }
+
+    /**
+     * Get an address by a Unique Delivery Point Reference Number
+     * @param $udprn
+     * @return array|Model
+     */
+    public function getByUDPRN($udprn)
+    {
+        $udprn = $this->encode($udprn);
+        $url = "addresses/$udprn";
+
+        return $this->getAddressesByRequest([$this, 'formatUdprnResponse'], $url);
+    }
+
+    /**
+     * Get an address by a Unique Delivery Point Reference Number
+     * @param $address
+     * @return array|Collection
+     */
+    public function getByAddress($address)
+    {
+        $address = $this->encode($address);
+        $url = "addresses";
+
+        return $this->getAddressesByRequest([$this, 'formatAddressQueryResponse'], $url, ['q' => $address]);
+    }
+
+    /**
+     * Get addresses from the service by a URL
+     * @param callable $formatter
+     * @param string $url
+     * @param array $query
+     * @return array|Collection
+     * @throws IdealPostcodesException
+     */
+    protected function getAddressesByRequest($formatter, $url, $query = [])
+    {
+        $this->clearRequestData();
+        $query = $this->mergeClientQuery($query);
+
+        try {
+            $response = $this->client->request('GET', $url, ['query' => $query]);
+        } catch (ClientException $e) {
+            $this->throwException($e);
+        }
+
+        $json = json_decode($response->getBody(), true);
+        $this->responseData = $json;
+        $this->setRequestData();
+
+        return $formatter($json);
     }
 
     /**
@@ -143,72 +231,6 @@ class IdealPostcodes
     }
 
     /**
-     * Get an array of addresses by Postcode
-     * @param $postcode
-     * @return Collection
-     */
-    public function getByPostcode($postcode)
-    {
-
-        $postcode = $this->preparePostcode($postcode);
-        $postcode = $this->encode($postcode);
-        $url = "postcodes/$postcode";
-
-        return $this->getAddressesByRequest([$this, 'formatPostcodeResponse'], $url);
-    }
-
-    /**
-     * Get an address by a Unique Delivery Point Reference Number
-     * @param $udprn
-     * @return array|Collection
-     */
-    public function getByUDPRN($udprn)
-    {
-        $udprn = $this->encode($udprn);
-        $url = "addresses/$udprn";
-
-        return $this->getAddressesByRequest([$this, 'formatUdprnResponse'], $url);
-    }
-
-    /**
-     * Get an address by a Unique Delivery Point Reference Number
-     * @param $address
-     * @return array|Collection
-     */
-    public function getByAddress($address)
-    {
-        $address = $this->encode($address);
-        $url = "addresses";
-
-        return $this->getAddressesByRequest([$this, 'formatAddressQueryResponse'], $url, ['q' => $address]);
-    }
-
-    /**
-     * Get addresses from the service by a URL
-     * @param callable $formatter
-     * @param string $url
-     * @param array $query
-     * @return array|Collection
-     * @throws IdealPostcodesException
-     */
-    protected function getAddressesByRequest($formatter, $url, $query = [])
-    {
-        $this->clearRequestData();
-        $query = array_merge($this->client->getConfig('query'), $query);
-        try {
-            $response = $this->client->request('GET', $url, ['query' => $query]);
-        } catch (ClientException $e) {
-            $this->throwException($e);
-        }
-
-        $json = json_decode($response->getBody(), true);
-        $this->responseData = $json;
-        $this->setRequestData();
-
-        return $formatter($json);
-    }
-
-    /**
      * Handle any exceptions from the Guzzle Client
      * @param ClientException $e
      * @throws IdealPostcodesException
@@ -219,7 +241,7 @@ class IdealPostcodes
     }
 
     /**
-     * Strips any whitespace and UEL encodes a postcode ready for lookup
+     * Strips any whitespace and URL encodes a postcode ready for lookup
      * @param $postcode
      * @return mixed
      */
@@ -270,12 +292,15 @@ class IdealPostcodes
     }
 
     /**
-     * Set the maximum number of records to be returned
-     * @param mixed $limit
+     * Set the maximum number of records to be returned (overrides config for next request only)
+     * @param int $limit
+     * @return $this
      */
-    public function setLimit($limit)
+    public function limit($limit)
     {
-        $this->limit = $limit;
+        $this->nextLimit = $limit;
+
+        return $this;
     }
 
     /**
@@ -342,6 +367,14 @@ class IdealPostcodes
     }
 
     /**
+     * @return mixed
+     */
+    public function getFields()
+    {
+        return $this->config['fields'];
+    }
+
+    /**
      * Format response for a postcode lookup request
      * @param $data
      * @return mixed
@@ -383,5 +416,20 @@ class IdealPostcodes
     protected function encode($string)
     {
         return rawurlencode($string);
+    }
+
+    /**
+     * Merge query params into Guzzle query
+     * @param $query
+     * @return array
+     */
+    protected function mergeClientQuery($query)
+    {
+        if ($this->nextLimit) {
+            $query[] = ['limit' => $this->nextLimit];
+            $this->nextLimit = null;
+        }
+
+        return array_merge($this->client->getConfig('query'), $query);
     }
 }

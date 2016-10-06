@@ -5,7 +5,6 @@
 	beStrictAboutOutputDuringTests="true"
 	beStrictAboutTestsThatDoNotTestAnything="true"
 	bootstrap="phpunit.php"
-	checkForUnintentionallyCoveredCode="true"
 	colors="true"
 	convertErrorsToExceptions="true"
 	convertNoticesToExceptions="true"
@@ -19,8 +18,7 @@
 	<!-- List of files with tests inside -->
 	<testsuites>
 		<testsuite name="Package Test Suite">
-			<directory suffix=".php">tests/unit/</directory>
-			<directory suffix=".php">tests/integration/</directory>
+			<directory suffix=".php">tests/unit</directory>
 		</testsuite>
 	</testsuites>
 
