@@ -14,24 +14,30 @@ return [
     /* Maximum records to be returned */
     'limit'      => 50,
 
-    /* Whether to wrap the results in a Laravel Collection object */
-    'collection' => true,
+    /* The AddressCollectionTransformer class that determines how an array of addresses is returned    */
+    'collectionTransformer' => \Squigg\IdealPostcodes\Transformers\CollectionTransformer::class,
 
-    /* You can choose for the address data to be populated into a Laravel Model. A new model of the class specified
-        below will be instantiated and filled with the address data. Set to null to turn off this behaviour */
-    // 'model'      => '\Path\To\Laravel\Model\For\Address',
-    'model'      => null,
+    /* The AddressTransformer class that determines how an array of addresses is returned   */
+    /* The default will populate a Laravel model. */
+    'modelTransformer' => \Squigg\IdealPostcodes\Transformers\ModelTransformer::class,
 
-    /* You may not want the fields in your Model to be fillable in general use. In this case set forceFill to true
-    to allow the attributes to be filled regardless of your $fillable setting in the model.
-    If you get a MassAssignmentException, add the required fields to your $fillable array or set this to true */
-    'forceFill'  => false,
+    /* These are options for the default ModelTransformer that comes with the package */
+    'modelTransformerOptions' =>
+        [
+            /* Choose a Laravel model for the address data to be populated into. A new model of the class specified
+            below will be instantiated and filled with the address data. */
+            'model' => \App\Address::class,
+
+            /* You may not want the fields in your Model to be fillable in general use. In this case set forceFill to true
+            to allow the attributes to be filled regardless of your $fillable setting in the model.
+            If you get a MassAssignmentException, add the required fields to your $fillable array or set this to true */
+            'forceFill'  => false,
+
+        ],
 
     /* An array of strings indicating fields to include from the API. Any fields not listed here will be excluded from
-    the results, reducing your bandwidth requirement.
-    You can transform a field from the API to a different attribute name in your Model by using an associative
-    array instead of a string e.g. ["api-field-name" => "model field name"]
-    Leave this blank to get all fields from the API */
+    the results, reducing your bandwidth requirement and avoiding excess attributes on your Model. Leave this empty
+    or set to null to get all available fields. */
 
     'fields' => [],
 
@@ -40,8 +46,7 @@ return [
         'sub_building_name',
         'building_name',
         'building_number',
-        ['thoroughfare' => 'main_street'],
-        // This maps a particular API field to a custom named field in your model/array
+        'thoroughfare',
         'post_town',
         'postcode',
         'premise',
@@ -52,5 +57,4 @@ return [
         'country',
     ],
     */
-
 ];

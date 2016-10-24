@@ -24,6 +24,9 @@
       "Squigg\\IdealPostcodes\\": "src/"
     }
   },
+  "autoload-dev": {
+    "classmap": ["tests/fixtures"]
+  },
   "license": "MIT",
   "authors": [
     {

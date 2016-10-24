@@ -5,6 +5,8 @@ use GuzzleHttp\Exception\ClientException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Squigg\IdealPostcodes\Exceptions\IdealPostcodesException;
+use Squigg\IdealPostcodes\Transformers\Interfaces\AddressCollectionTransformer;
+use Squigg\IdealPostcodes\Transformers\Interfaces\AddressTransformer;
 
 class IdealPostcodes
 {
@@ -85,7 +87,18 @@ class IdealPostcodes
      * Limit for the next request only
      * @var int
      */
-    protected $nextLimit;
+    protected $nextRequestLimit;
+
+    /**
+     * A transformer class for a collection of addresses
+     * @var AddressCollectionTransformer
+     */
+    protected $collectionTransformer;
+    /**
+     * A transformer class for a single address
+     * @var AddressTransformer
+     */
+    protected $addressTransformer;
 
     /**
      * Initialise a new instance of the class
@@ -96,14 +109,9 @@ class IdealPostcodes
     {
         $this->client = $client;
         $this->config = $config;
-
-        $this->collection = array_get($config, 'collection', false);
-        $this->model = array_get($config, 'model', null);
-        $this->fields = array_get($config, 'fields', []);
         $this->limit = array_get($config, 'limit', 50);
         $this->apiKey = array_get($config, 'api_key', 50);
     }
-
     /**
      * Get an array of addresses by Postcode
      * @param $postcode
@@ -114,9 +122,9 @@ class IdealPostcodes
 
         $postcode = $this->preparePostcode($postcode);
         $postcode = $this->encode($postcode);
-        $url = "postcodes/$postcode";
+        $endPoint = "postcodes/$postcode";
 
-        return $this->getAddressesByRequest([$this, 'formatPostcodeResponse'], $url);
+        return $this->getAddressesByRequest([$this, 'handlePostcodeResponse'], $endPoint);
     }
 
     /**
@@ -127,9 +135,9 @@ class IdealPostcodes
     public function getByUDPRN($udprn)
     {
         $udprn = $this->encode($udprn);
-        $url = "addresses/$udprn";
+        $endPoint = "udprn/$udprn";
 
-        return $this->getAddressesByRequest([$this, 'formatUdprnResponse'], $url);
+        return $this->getAddressesByRequest([$this, 'handleUdprnResponse'], $endPoint);
     }
 
     /**
@@ -140,26 +148,27 @@ class IdealPostcodes
     public function getByAddress($address)
     {
         $address = $this->encode($address);
-        $url = "addresses";
+            $endPoint = "addresses";
 
-        return $this->getAddressesByRequest([$this, 'formatAddressQueryResponse'], $url, ['q' => $address]);
+        return $this->getAddressesByRequest([$this, 'handleAddressQueryResponse'], $endPoint, ['q' => $address]);
     }
 
     /**
      * Get addresses from the service by a URL
-     * @param callable $formatter
-     * @param string $url
+     * @param callable $handler
+     * @param string $endPoint
      * @param array $query
      * @return array|Collection
      * @throws IdealPostcodesException
      */
-    protected function getAddressesByRequest($formatter, $url, $query = [])
+    protected function getAddressesByRequest($handler, $endPoint, $query = [])
     {
         $this->clearRequestData();
-        $query = $this->mergeClientQuery($query);
+        $query = $this->mergeAdditionalParams($query);
+        $query = $this->mergeTemporaryLimitParam($query);
 
         try {
-            $response = $this->client->request('GET', $url, ['query' => $query]);
+            $response = $this->client->request('GET', $endPoint, ['query' => $query]);
         } catch (ClientException $e) {
             $this->throwException($e);
         }
@@ -168,25 +177,32 @@ class IdealPostcodes
         $this->responseData = $json;
         $this->setRequestData();
 
-        return $formatter($json);
+        return $handler($json);
     }
 
     /**
-     * Format the addresses ready to be returned
-     * @param $addresses
-     * @return mixed
+     * Merge additional query params into Guzzle query
+     * @param $query
+     * @return array
      */
-    protected function formatAddresses($addresses)
+    protected function mergeAdditionalParams($query)
     {
-        // Filter only the fields we want
-        $addresses = $this->filterAddressFields($addresses);
+        return array_merge($this->client->getConfig('query'), $query);
+    }
 
-        // Check if this should be returned as a collection
-        if ($this->collection) {
-            return $this->createAddressCollection($addresses);
+    /**
+     * Merge additional query params into Guzzle query
+     * @param $query
+     * @return array
+     */
+    protected function mergeTemporaryLimitParam($query)
+    {
+        if ($this->nextRequestLimit) {
+            $query = $this->mergeAdditionalParams(['limit' => $this->nextRequestLimit]);
+            $this->nextRequestLimit = null;
         }
 
-        return array_map([$this, 'formatAddress'], $addresses);
+        return $query;
     }
 
     /**
@@ -194,16 +210,15 @@ class IdealPostcodes
      * @param array $addresses
      * @return Collection
      */
-    protected function createAddressCollection($addresses)
+    protected function transformAddressCollection($addresses)
     {
-        $collection = new Collection();
+        $addresses = array_map([$this, 'transformAddress'], $addresses);
 
-        foreach ($addresses as $address) {
-            $address = $this->formatAddress($address);
-            $collection->push($address);
+        if ($this->collectionTransformer) {
+            return $this->collectionTransformer->transform($addresses);
         }
 
-        return $collection->keyBy('udprn');
+        return $addresses;
     }
 
     /**
@@ -211,23 +226,56 @@ class IdealPostcodes
      * @param $address
      * @return mixed
      */
-    protected function formatAddress($address)
+    protected function transformAddress($address)
     {
-        if ($this->model) {
-            return $this->convertToModel($address);
+        if ($this->addressTransformer) {
+            return $this->addressTransformer->transform($address);
         }
-
         return $address;
     }
 
     /**
-     * Convert an array of address data to a Model
-     * @param $address
+     * Format response for a postcode lookup request
+     * @param $data
      * @return mixed
      */
-    protected function convertToModel($address)
+    protected function handlePostcodeResponse($data)
     {
-        return new $this->model($address);
+        $addresses = $data['result'];
+        return $this->transformAddressCollection($addresses);
+    }
+
+    /**
+     * Format response for an address UDPRN query
+     * @param $data
+     * @return mixed
+     */
+    protected function handleUdprnResponse($data)
+    {
+        $address = $data['result'];
+        return $this->transformAddress($address);
+    }
+
+    /**
+     * Format the response to an Address query request
+     * @param $data
+     * @return mixed
+     */
+    protected function handleAddressQueryResponse($data)
+    {
+        $addresses = $data['result']['hits'];
+
+        return $this->transformAddressCollection($addresses);
+    }
+
+    /**
+     * Encode a string for use in a URL
+     * @param $string
+     * @return string
+     */
+    protected function encode($string)
+    {
+        return rawurlencode($string);
     }
 
     /**
@@ -251,54 +299,13 @@ class IdealPostcodes
     }
 
     /**
-     * Filter the fields within an array of addresses
-     * @param $addresses
-     * @return array
-     */
-    protected function filterAddressFields($addresses)
-    {
-
-        if (!empty($this->fields) && sizeof($addresses) > 0) {
-
-            $addresses = array_map([$this, 'transformAddress'], $addresses);
-        }
-
-        return $addresses;
-    }
-
-    /**
-     * Filter fields in an address based on the fields config setting
-     * @param $address
-     * @return array
-     */
-    protected function transformAddress($address)
-    {
-        $newAddress = [];
-
-        foreach ($this->fields as $field) {
-
-            if (is_array($field)) {
-                if (isset($address[key($field)])) {
-                    $newAddress[current($field)] = $address[key($field)];
-                }
-            } else {
-                if (isset($address[$field])) {
-                    $newAddress[$field] = $address[$field];
-                }
-            }
-        }
-
-        return $newAddress;
-    }
-
-    /**
      * Set the maximum number of records to be returned (overrides config for next request only)
      * @param int $limit
      * @return $this
      */
-    public function limit($limit)
+    public function limitNextRequest($limit)
     {
-        $this->nextLimit = $limit;
+        $this->nextRequestLimit = $limit;
 
         return $this;
     }
@@ -365,7 +372,6 @@ class IdealPostcodes
     {
         return $this->limit;
     }
-
     /**
      * @return mixed
      */
@@ -374,62 +380,20 @@ class IdealPostcodes
         return $this->config['fields'];
     }
 
-    /**
-     * Format response for a postcode lookup request
-     * @param $data
-     * @return mixed
-     */
-    protected function formatPostcodeResponse($data)
-    {
-        $addresses = $data['result'];
 
-        return $this->formatAddresses($addresses);
+    /**
+     * @param AddressCollectionTransformer $collectionTransformer
+     */
+    public function setCollectionTransformer(AddressCollectionTransformer $collectionTransformer)
+    {
+        $this->collectionTransformer = $collectionTransformer;
     }
 
     /**
-     * Format response for an address UDPRN query
-     * @param $data
-     * @return mixed
+     * @param AddressTransformer $addressTransformer
      */
-    protected function formatUdprnResponse($data)
+    public function setAddressTransformer(AddressTransformer $addressTransformer)
     {
-        return $this->formatPostcodeResponse($data)->first();
-    }
-
-    /**
-     * Format the response to an Address query request
-     * @param $data
-     * @return mixed
-     */
-    protected function formatAddressQueryResponse($data)
-    {
-        $addresses = $data['result']['hits'];
-
-        return $this->formatAddresses($addresses);
-    }
-
-    /**
-     * Encode a string for use in a URL
-     * @param $string
-     * @return string
-     */
-    protected function encode($string)
-    {
-        return rawurlencode($string);
-    }
-
-    /**
-     * Merge query params into Guzzle query
-     * @param $query
-     * @return array
-     */
-    protected function mergeClientQuery($query)
-    {
-        if ($this->nextLimit) {
-            $query[] = ['limit' => $this->nextLimit];
-            $this->nextLimit = null;
-        }
-
-        return array_merge($this->client->getConfig('query'), $query);
+        $this->addressTransformer = $addressTransformer;
     }
 }
