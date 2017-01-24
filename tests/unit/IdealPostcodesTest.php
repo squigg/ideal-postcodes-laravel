@@ -70,6 +70,12 @@ class IdealPostcodesTest extends TestCase
         return new IdealPostcodes($client, $config);
     }
 
+    protected function getSingleAddressFixtureAsArray()
+    {
+        $array = json_decode($this->getUdprnResponse(), true);
+        return $array['result'];
+    }
+
     /** @test */
     public function it_can_get_addresses_by_postcode()
     {
@@ -106,6 +112,8 @@ class IdealPostcodesTest extends TestCase
         $response = $service->getByAddress('search');
 
         $this->assertCount(2, $response);
+        $this->assertArraySubset(['postcode' => 'SW1A 2AA'], $response[0]);
+        $this->assertArraySubset(['post_town' => 'LONDON'], $response[0]);
         $this->assertArraySubset(['postcode' => 'WC1N 1LX'], $response[1]);
         $this->assertArraySubset(['post_town' => 'LONDON'], $response[1]);
 
@@ -123,6 +131,7 @@ class IdealPostcodesTest extends TestCase
 
         $this->assertInstanceOf(Model::class, $response);
         $this->assertEquals('yes', $response->filled);
+        $this->assertEquals($this->getSingleAddressFixtureAsArray(),$response->getAttributes());
     }
 
     /** @test */
