@@ -17,8 +17,8 @@ return [
     /* The AddressCollectionTransformer class that determines how an array of addresses is returned    */
     'collectionTransformer' => \Squigg\IdealPostcodes\Transformers\CollectionTransformer::class,
 
-    /* The AddressTransformer class that determines how an array of addresses is returned   */
-    /* The default will populate a Laravel model. */
+    /* The AddressTransformer class that determines how a single address is returned   */
+    /* The default will populate a Laravel model given in the modelTransformerOptions below. */
     'modelTransformer' => \Squigg\IdealPostcodes\Transformers\ModelTransformer::class,
 
     /* These are options for the default ModelTransformer that comes with the package */
