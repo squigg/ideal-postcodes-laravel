@@ -29,39 +29,71 @@ class IdealPostcodesServiceProvider extends ServiceProvider
         // Merge the congfiguration options
         $this->mergeConfigFrom(__DIR__ . '/../config/ideal-postcodes.php', 'ideal-postcodes');
 
+        // Register the Guzzle Client
+        $this->registerIdealPostcodesClient();
+
+        // Register the IdealPostcodes class
+        $this->registerIdealPostcodes();
+    }
+
+    protected function registerIdealPostcodesClient()
+    {
         // Bind the client into the IOC
         $this->app->bind('ideal-postcodes-client', function ($app) {
-            $config = [
-                'base_uri' => config('ideal-postcodes.base_url'),
-                'timeout'  => config('ideal-postcode.timeout', 10),
-                'query'    => [
-                    'api_key' => config('ideal-postcodes.api_key', 'iddqd'),
-                    'limit'   => config('ideal-postcodes.limit', 25),
-                ],
-            ];
 
-            if ($fields = $this->getFieldList()) {
-                $config['query']['filter'] = $fields;
-            }
-
+            $config = $this->getClientConfig();
             return new \GuzzleHttp\Client($config);
         });
+    }
 
+    protected function getClientConfig()
+    {
+        $config = [
+            'base_uri' => config('ideal-postcodes.base_url'),
+            'timeout'  => config('ideal-postcode.timeout', 10),
+            'query'    => [
+                'api_key' => config('ideal-postcodes.api_key', 'iddqd'),
+                'limit'   => config('ideal-postcodes.limit', 25),
+            ],
+        ];
+
+        if ($fields = $this->getFieldList()) {
+            $config['query']['filter'] = $fields;
+        }
+
+        return $config;
+    }
+
+    protected function getServiceConfig()
+    {
+        return config('ideal-postcodes');
+    }
+
+    protected function registerIdealPostcodes()
+    {
         // Bind the main class into the IOC
         $this->app->singleton('ideal-postcodes', function ($app) {
 
-            $config = config('ideal-postcodes');
-            $service = new IdealPostcodes($app['ideal-postcodes-client'], $config);
-
-            $service->setCollectionTransformer($this->getCollectionTransformer());
-            $service->setAddressTransformer($this->getAddressTransformer());
-
+            $config = $this->getServiceConfig();
+            $service = $this->getIdealPostcodesService($app, $config);
+            $this->setTransformers($service);
             return $service;
         });
 
         // Add an alias so that using the full classname as a dependency will grab this version
         $this->app->alias('ideal-postcodes', IdealPostcodes::class);
+    }
 
+    protected function setTransformers(IdealPostcodes $service)
+    {
+        $service->setCollectionTransformer($this->getCollectionTransformer());
+        $service->setAddressTransformer($this->getAddressTransformer());
+    }
+
+
+    protected function getIdealPostcodesService($app, $config)
+    {
+        return new IdealPostcodes($app['ideal-postcodes-client'], $config);
     }
 
     /**
